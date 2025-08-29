@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,7 +14,14 @@ import (
 )
 
 func LoadSwagger(filePath string) (swagger *openapi3.T, err error) {
+	// Feature-flagged libopenapi loader path. Defaults to legacy kin-openapi loader.
+	if v := os.Getenv("OAPI_ENABLE_LIBOPENAPI_LOADER"); v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
+		return loadWithLibopenapi(filePath)
+	}
+	return loadWithKin(filePath)
+}
 
+func loadWithKin(filePath string) (swagger *openapi3.T, err error) {
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
 
