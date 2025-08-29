@@ -18,13 +18,12 @@ import (
 
 func LoadSwagger(filePath string) (swagger *openapi3.T, err error) {
 	// Feature-flagged libopenapi loader pat with safe fallback. Defaults to legacy kin-openapi loader.
-	if v := os.Getenv("OAPI_CODEGEN_USE_LIBOPENAPI"); v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
+	v := os.Getenv("OAPI_CODEGEN_USE_LIBOPENAPI")
+	if v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
 		return loadWithLibopenapi(filePath)
+	} else if strings.EqualFold(v, "strict") {
+		return loadWithLibopenapiStrict(filePath)
 	}
-	// TODO: Add strict mode with no fallback to loadWithKin.
-	// else if v := os.Getenv("OAPI_CODEGEN_USE_LIBOPENAPI_STRICT"); v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
-	// 	return loadWithLibopenapiStrict(filePath)
-	// }
 	return loadWithKin(filePath)
 }
 
@@ -57,6 +56,15 @@ func loadWithLibopenapi(filePath string) (swagger *openapi3.T, err error) {
 		return swagger, nil
 	}
 	return loadWithKin(filePath)
+}
+
+func loadWithLibopenapiStrict(filePath string) (swagger *openapi3.T, err error) {
+	u, err := url.Parse(filePath)
+	if err == nil && u.Scheme != "" && u.Host != "" {
+		return libopenapiLoadFromURI(u)
+	} else {
+		return libopenapiLoadFromFile(filePath)
+	}
 }
 
 func libopenapiLoadFromURI(u *url.URL) (*openapi3.T, error) {
