@@ -3336,6 +3336,26 @@ Any other server (which conforms to `net/http`)
 > [!NOTE]
 > We're also [exploring](https://github.com/oapi-codegen/exp/issues/1) the use of [libopenapi-validator](https://github.com/pb33f/libopenapi-validator/) for request/response validation middleware
 
+### Libopenapi-backed loader (experimental)
+
+You can opt-in to an experimental loader that parses specs using `github.com/pb33f/libopenapi` under the hood, while preserving the existing public API (`*openapi3.T`). This is feature-flagged and disabled by default.
+
+- Soft mode (try libopenapi, fallback to kin-openapi on error):
+
+```bash
+OAPI_CODEGEN_USE_LIBOPENAPI=1 make test
+```
+
+- Strict mode (no fallback; errors if libopenapi path fails):
+
+```bash
+OAPI_CODEGEN_USE_LIBOPENAPI=strict make test
+```
+
+Notes:
+- This pathway validates the document with libopenapi, then loads the same bytes into kin-openapi to keep current generator behavior unchanged.
+- Use strict mode in CI to surface divergences early during the migration.
+
 ## Implementing security
 
 If you're using a specification with [Security Schemes](https://spec.openapis.org/oas/v3.0.3#security-scheme-object) and [Security Requirements](https://spec.openapis.org/oas/v3.0.3#security-requirement-object), you'll want to authenticate and authorize requests.
