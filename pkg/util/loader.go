@@ -16,55 +16,76 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func LoadSwagger(filePath string) (swagger *openapi3.T, err error) {
-	// Feature-flagged libopenapi loader pat with safe fallback. Defaults to legacy kin-openapi loader.
-	v := os.Getenv("OAPI_CODEGEN_USE_LIBOPENAPI")
-	if v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
-		return loadWithLibopenapi(filePath)
-	} else if strings.EqualFold(v, "strict") {
-		return loadWithLibopenapiStrict(filePath)
-	}
-	return loadWithKin(filePath)
+// LoaderStrategy abstracts how an OpenAPI document is loaded.
+type LoaderStrategy interface {
+	Load(filePath string) (*openapi3.T, error)
 }
 
-func loadWithKin(filePath string) (swagger *openapi3.T, err error) {
+type kinLoader struct{}
+
+func (kinLoader) Load(filePath string) (*openapi3.T, error) {
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
 
 	u, err := url.Parse(filePath)
 	if err == nil && u.Scheme != "" && u.Host != "" {
 		return loader.LoadFromURI(u)
-	} else {
-		return loader.LoadFromFile(filePath)
 	}
+	return loader.LoadFromFile(filePath)
 }
 
-// loadWithLibopenapi attempts to parse the spec using libopenapi, then returns a
-// kin-openapi *openapi3.T loaded from the same bytes (with correct base path) to
-// preserve public API and generator behavior. If libopenapi parsing fails, it
-// falls back to the legacy kin-openapi loader.
-func loadWithLibopenapi(filePath string) (swagger *openapi3.T, err error) {
-	// Mirror loadWithKin URL parse and branching, with fallback to legacy kin-openapi loader.
+type libopenapiLoader struct{}
+
+// libopenapiLoader tries libopenapi first and falls back to kin-openapi on error, for backwards compatibility.
+func (libopenapiLoader) Load(filePath string) (*openapi3.T, error) {
 	u, err := url.Parse(filePath)
 	if err == nil && u.Scheme != "" && u.Host != "" {
-		if swagger, err := libopenapiLoadFromURI(u); err == nil {
-			return swagger, nil
+		if s, err := libopenapiLoadFromURI(u); err == nil {
+			return s, nil
 		}
-		return loadWithKin(filePath)
+		// fallback to kin loader for URI
+		loader := openapi3.NewLoader()
+		loader.IsExternalRefsAllowed = true
+		return loader.LoadFromURI(u)
 	}
-	if swagger, err := libopenapiLoadFromFile(filePath); err == nil {
-		return swagger, nil
+	if s, err := libopenapiLoadFromFile(filePath); err == nil {
+		return s, nil
 	}
-	return loadWithKin(filePath)
+	// fallback to kin loader for file
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+	return loader.LoadFromFile(filePath)
 }
 
-func loadWithLibopenapiStrict(filePath string) (swagger *openapi3.T, err error) {
+type libopenapiLoaderStrict struct{}
+
+// libopenapiLoaderStrict enforces the libopenapi path with no fallback.
+func (libopenapiLoaderStrict) Load(filePath string) (*openapi3.T, error) {
 	u, err := url.Parse(filePath)
 	if err == nil && u.Scheme != "" && u.Host != "" {
 		return libopenapiLoadFromURI(u)
-	} else {
-		return libopenapiLoadFromFile(filePath)
 	}
+	return libopenapiLoadFromFile(filePath)
+}
+
+// getLoaderStrategy selects a loader strategy based on environment.
+// OAPI_CODEGEN_USE_LIBOPENAPI values:
+//   - "strict": use libopenapi with no fallback
+//   - "1", "true", "yes": use libopenapi with fallback to kin on error
+//   - otherwise: use kin-openapi
+func getLoaderStrategy() LoaderStrategy {
+	v := os.Getenv("OAPI_CODEGEN_USE_LIBOPENAPI")
+	if strings.EqualFold(v, "strict") {
+		return libopenapiLoaderStrict{}
+	}
+	if v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") {
+		return libopenapiLoader{}
+	}
+	return kinLoader{}
+}
+
+func LoadSwagger(filePath string) (swagger *openapi3.T, err error) {
+	return getLoaderStrategy().Load(filePath)
 }
 
 func libopenapiLoadFromURI(u *url.URL) (*openapi3.T, error) {
