@@ -16,6 +16,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// test seams to improve testability of the fallback case
+var (
+	httpGet   = http.Get
+	newLibDoc = libopenapi.NewDocument
+	// onLoaderDecision, if set, is invoked with: "kin:uri", "kin:file", "libopenapi:uri", "libopenapi:file", "fallback:uri", "fallback:file".
+	onLoaderDecision = func(string) {}
+)
+
 // LoaderStrategy abstracts how an OpenAPI document is loaded.
 // more info: https://refactoring.guru/design-patterns/strategy
 type LoaderStrategy interface {
@@ -30,8 +38,12 @@ func (kinLoader) Load(filePath string) (*openapi3.T, error) {
 
 	u, err := url.Parse(filePath)
 	if err == nil && u.Scheme != "" && u.Host != "" {
+
+		onLoaderDecision("kin:uri")
 		return loader.LoadFromURI(u)
 	}
+
+	onLoaderDecision("kin:file")
 	return loader.LoadFromFile(filePath)
 }
 
@@ -41,8 +53,12 @@ type libopenapiLoaderStrict struct{}
 func (libopenapiLoaderStrict) Load(filePath string) (*openapi3.T, error) {
 	u, err := url.Parse(filePath)
 	if err == nil && u.Scheme != "" && u.Host != "" {
+
+		onLoaderDecision("libopenapi:uri")
 		return libopenapiLoadFromURI(u)
 	}
+
+	onLoaderDecision("libopenapi:file")
 	return libopenapiLoadFromFile(filePath)
 }
 
@@ -52,18 +68,26 @@ type libopenapiLoader struct{}
 func (libopenapiLoader) Load(filePath string) (*openapi3.T, error) {
 	u, err := url.Parse(filePath)
 	if err == nil && u.Scheme != "" && u.Host != "" {
+
+		onLoaderDecision("libopenapi:uri")
 		if s, err := libopenapiLoadFromURI(u); err == nil {
 			return s, nil
 		}
 		// fallback to kin loader for URI
+
+		onLoaderDecision("fallback:uri")
 		loader := openapi3.NewLoader()
 		loader.IsExternalRefsAllowed = true
 		return loader.LoadFromURI(u)
 	}
+
+	onLoaderDecision("libopenapi:file")
 	if s, err := libopenapiLoadFromFile(filePath); err == nil {
 		return s, nil
 	}
 	// fallback to kin loader for file
+
+	onLoaderDecision("fallback:file")
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
 	return loader.LoadFromFile(filePath)
@@ -90,7 +114,7 @@ func LoadSwagger(filePath string) (swagger *openapi3.T, err error) {
 }
 
 func libopenapiLoadFromURI(u *url.URL) (*openapi3.T, error) {
-	resp, err := http.Get(u.String())
+	resp, err := httpGet(u.String())
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +125,7 @@ func libopenapiLoadFromURI(u *url.URL) (*openapi3.T, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, derr := libopenapi.NewDocument(b); derr != nil {
+	if _, derr := newLibDoc(b); derr != nil {
 		return nil, derr
 	}
 	loader := openapi3.NewLoader()
@@ -114,7 +138,7 @@ func libopenapiLoadFromFile(filePath string) (*openapi3.T, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, derr := libopenapi.NewDocument(b); derr != nil {
+	if _, derr := newLibDoc(b); derr != nil {
 		return nil, derr
 	}
 	loader := openapi3.NewLoader()
