@@ -1,6 +1,8 @@
 package util
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,6 +58,55 @@ components:
 		// For soft+invalid, behavior depends on whether kin can parse; we don't force a fallback here.
 		// Use a clearly malformed YAML so both libopenapi and kin should error => expect error.
 		{name: "soft invalid file", env: "1", path: invalidPath, wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OAPI_CODEGEN_USE_LIBOPENAPI", tc.env)
+			spec, err := LoadSwagger(tc.path)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got spec=%v", spec != nil)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if spec == nil {
+				t.Fatalf("got nil spec")
+			}
+		})
+	}
+}
+
+func TestLoadSwagger_URI_StrictAndSoft(t *testing.T) {
+	// valid minimal 3.0 spec
+	spec := []byte("openapi: 3.0.0\ninfo: {title: t, version: v}\npaths: {}\n")
+	bad := []byte("not: [valid")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		switch r.URL.Path {
+		case "/spec.yaml":
+			_, _ = w.Write(spec)
+		case "/bad.yaml":
+			_, _ = w.Write(bad)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	cases := []struct {
+		name    string
+		env     string
+		path    string
+		wantErr bool
+	}{
+		{name: "strict valid uri", env: "strict", path: ts.URL + "/spec.yaml", wantErr: false},
+		{name: "strict invalid uri", env: "strict", path: ts.URL + "/bad.yaml", wantErr: true},
+		{name: "soft valid uri", env: "1", path: ts.URL + "/spec.yaml", wantErr: false},
 	}
 
 	for _, tc := range cases {
