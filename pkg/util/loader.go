@@ -17,6 +17,7 @@ import (
 )
 
 // LoaderStrategy abstracts how an OpenAPI document is loaded.
+// more info: https://refactoring.guru/design-patterns/strategy
 type LoaderStrategy interface {
 	Load(filePath string) (*openapi3.T, error)
 }
@@ -32,6 +33,17 @@ func (kinLoader) Load(filePath string) (*openapi3.T, error) {
 		return loader.LoadFromURI(u)
 	}
 	return loader.LoadFromFile(filePath)
+}
+
+type libopenapiLoaderStrict struct{}
+
+// libopenapiLoaderStrict enforces the libopenapi path with no fallback.
+func (libopenapiLoaderStrict) Load(filePath string) (*openapi3.T, error) {
+	u, err := url.Parse(filePath)
+	if err == nil && u.Scheme != "" && u.Host != "" {
+		return libopenapiLoadFromURI(u)
+	}
+	return libopenapiLoadFromFile(filePath)
 }
 
 type libopenapiLoader struct{}
@@ -55,17 +67,6 @@ func (libopenapiLoader) Load(filePath string) (*openapi3.T, error) {
 	loader := openapi3.NewLoader()
 	loader.IsExternalRefsAllowed = true
 	return loader.LoadFromFile(filePath)
-}
-
-type libopenapiLoaderStrict struct{}
-
-// libopenapiLoaderStrict enforces the libopenapi path with no fallback.
-func (libopenapiLoaderStrict) Load(filePath string) (*openapi3.T, error) {
-	u, err := url.Parse(filePath)
-	if err == nil && u.Scheme != "" && u.Host != "" {
-		return libopenapiLoadFromURI(u)
-	}
-	return libopenapiLoadFromFile(filePath)
 }
 
 // getLoaderStrategy selects a loader strategy based on environment.
